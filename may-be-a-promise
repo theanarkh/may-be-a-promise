@@ -1,0 +1,196 @@
+function Promise(fn) {
+	this._resolve = [];
+	this._reject = [];
+	this.next = null;
+	this.value = null;
+	this.state = 'pending';
+	this.id = Promise.idFactory();
+	fn && fn(this.resolve.bind(this),this.reject.bind(this));
+}
+
+
+Promise.prototype = {
+	id: 0,
+	type: function(arg) {
+		return  Object.prototype.toString.call(arg).match(/ (\w+)/)[0];
+	},
+	equal: function(promise) {
+		return promise && (this.type(promise.then) === 'Function') && (this.id === promise.id);
+	},
+	resolve: function(value) {
+		if (value === this) {
+			this.reject(new Error('TypeError'));
+		} else if (value && typeof value.then === 'function'){//回调返回的值或者resolve的值是Promise对象时需要继续等待
+			value.then(this.functionFactory(this,'resolve'),this.functionFactory(this,'reject'));
+		} else if (this.type(value) === 'Object' || this.type(value) === 'Function') {
+			try {
+				var then = value.then;
+			} catch(getThenErr) {
+				this.reject(thenErr);
+			}
+			if (this.type(then) === 'Function') {
+				try {
+					then.call(value,this.resolve.bind(this),this.reject.bind(this));
+				} catch(callThenErr) {
+					if (this.state === 'pending') {
+						this.reject(callThenErr);
+					} else {
+						//noop
+					}
+				}
+			} else {
+				this.resolve(value);
+			}
+		}
+		else {
+			var fn;
+			this.setState('resolve');
+			this.value = value;
+			while (fn = this._resolve.shift()) {
+				try {
+					if (typeof fn == 'function') {
+						var result = fn(value);
+						this.value = result;
+					} 
+				} catch (err) {
+					this.reject(result);
+					break;
+				}
+			}
+			if (result === this) {
+				this.reject(new Error('TypeError'));
+			} else if (result && typeof result.then === 'function'){//回调返回的值或者resolve的值是Promise对象时需要继续等待
+				result.then(this.functionFactory(this,'resolve'),this.functionFactory(this,'reject'));
+			} else if (this.type(result) === 'Object' || this.type(result) === 'Function') {
+				try {
+					var then = result.then;
+				} catch(getThenErr) {
+					this.reject(thenErr);
+				}
+				if (this.type(then) === 'Function') {
+					try {
+						then.call(result,this.resolve.bind(this),this.reject.bind(this));
+					} catch(callThenErr) {
+						if (this.state === 'pending') {
+							this.reject(callThenErr);
+						} else {
+							//noop
+						}
+					}
+				} else {
+					this.resolve(result);
+				}
+			} else {
+				this.next && this.next[this.state](this.value);
+			}
+		} 
+	},
+	functionFactory: function(context,state) {
+		return function(result) {
+			context[state](result);
+		}
+	},
+	setState: function(state) {
+		this.state = state;
+	},
+	reject: function(value) {
+		if (this.state === 'pending') {
+			this.setState('reject');
+			this.value = value;
+			var fn;
+			while (fn = this._reject.shift()) {
+				try {
+					if (typeof fn == 'function') {
+						var result = fn(value);
+						this.value = result;
+					} 
+				} catch (err) {
+
+				}
+			}
+			this.next && this.next[this.state](result)
+		}
+	},
+	then: function(resolve,reject) {
+		if (this.state != 'pending') {
+			setTimeout(this.state === 'resolve' ? resolve.bind(null,this.value) :  reject.bind(null,this.value),0);
+			return;
+		}
+		this._resolve.push(resolve);
+		this._reject.push(reject);
+		this.next = new Promise();
+		return this.next;
+	},
+	catch: function(reject) {
+		return this.then(void 0,reject);
+	}
+}
+Promise.all = function(promiseArr) {
+	if (Object.prototype.toString.call(promiseArr) !== '[object Array]') {
+		new Error('need a Array');
+	}
+	var count = 0;
+	var result = [];
+	var ret = new Promise();
+	for (var i = 0; i< promiseArr.length ;i++) {
+		promiseArr[i].then((function(i) {
+			return function(value) {
+				result[i] = value;
+				count++;
+				if (count === promiseArr.length) {
+					ret.resolve(result); 
+				}
+			}
+		})(i),function(value) {
+			if (ret.state === 'pending') {
+				ret.reject(value);
+			}	
+		})
+	}
+	return ret;
+}
+
+Promise.race = function(promiseArr) {
+	if (Object.prototype.toString.call(promiseArr) !== '[object Array]') {
+		new Error('need a Array');
+	}
+	var ret = new Promise();
+	for (var i = 0; i< promiseArr.length ;i++) {
+		promiseArr[i].then(function(value) {
+			if (ret.state === 'pending') {
+				ret.resolve(value);
+			}
+		},function(value) {
+			if (ret.state === 'pending') {
+				ret.reject(value);
+			}	
+		});
+	}
+	return ret;
+}
+
+Promise.resolve = function(arg) {
+	if (arg && typeof arg.then === 'function') {
+		return arg;
+	} else {
+		var result = new Promise();
+		result.resolve(arg);
+		return result;
+	}
+}
+
+Promise.reject = function(arg) {
+	if (arg && typeof arg.then === 'function') {
+		return arg;
+	} else {
+		var result = new Promise();
+		result.reject(arg);
+		return result;
+	}
+}
+Promise.idFactory = (function() {
+	var _id = 0;
+	return function() {
+		return _id += 1;
+	}
+})();
