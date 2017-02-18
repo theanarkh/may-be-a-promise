@@ -88,7 +88,7 @@ function Promise(fn) {
 
 Promise.prototype = {
 	equal: function(promise) {//根据id判断两个Promise对象是否相等
-		return promise && (type(promise.then) === 'function') && (this.id === promise.id);
+		return promise && (type(promise.then) === 'Function') && (this.id === promise.id);
 	},
 	resolve: function(value) {
 		if(this.state !== 'pending'){
@@ -143,7 +143,7 @@ Promise.prototype = {
 	}
 }
 Promise.all = function(promiseArr) {
-	if (Object.prototype.toString.call(promiseArr) !== '[object Array]') {//参数需要Promise数组
+	if (type(promiseArr) !== 'Array') {//参数需要Promise数组
 		new Error('need a Array');
 	}
 	var count = 0;
@@ -168,7 +168,7 @@ Promise.all = function(promiseArr) {
 }
 
 Promise.race = function(promiseArr) {
-	if (Object.prototype.toString.call(promiseArr) !== '[object Array]') {
+	if (type(promiseArr) !== 'Array') {
 		new Error('need a Array');
 	}
 	var ret = new Promise();
