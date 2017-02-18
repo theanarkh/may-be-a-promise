@@ -1,148 +1,165 @@
-function Promise(fn) {
-	this._resolve = [];
-	this._reject = [];
-	this.next = null;
-	this.value = null;
-	this.state = 'pending';
-	this.id = Promise.idFactory();
-	fn && fn(this.resolve.bind(this),this.reject.bind(this));
-}
 
-
-Promise.prototype = {
-	id: 0,
-	type: function(arg) {
-		return  Object.prototype.toString.call(arg).match(/ (\w+)/)[0];
-	},
-	equal: function(promise) {
-		return promise && (this.type(promise.then) === 'Function') && (this.id === promise.id);
-	},
-	resolve: function(value) {
-		if (value === this) {
-			this.reject(new Error('TypeError'));
-		} else if (value && typeof value.then === 'function'){//回调返回的值或者resolve的值是Promise对象时需要继续等待
-			value.then(this.functionFactory(this,'resolve'),this.functionFactory(this,'reject'));
-		} else if (this.type(value) === 'Object' || this.type(value) === 'Function') {
-			try {
-				var then = value.then;
-			} catch(getThenErr) {
-				this.reject(thenErr);
-			}
-			if (this.type(then) === 'Function') {
-				try {
-					then.call(value,this.resolve.bind(this),this.reject.bind(this));
-				} catch(callThenErr) {
-					if (this.state === 'pending') {
-						this.reject(callThenErr);
-					} else {
-						//noop
-					}
-				}
-			} else {
-				this.resolve(value);
-			}
+function resolve_promise_value(promise,value) {//PromiseA+的实现
+	var then;
+	/*
+		ret false 说明没有执行promise._resolve里的函数
+		ret true 说明执行了promise._resolve里的函数
+		ret error 说明执行promise._resolve里的函数过程中出现错误
+	*/
+	var ret = false;
+	
+	/*
+		resolve(promise)和执行resolve状态时的回调函数后返回的结果都需要执行resolve(promise,value)
+	*/
+	if (value === promise) {//传进来的对象不能等于当前的Promise对象
+		promise.reject(new TypeError('TypeError'));
+	} else if (value && value instanceof Promise){//回调返回的值或者resolve的值是Promise对象时需要等待该Promise对象的状态变更
+		value.then(promise.resolve.bind(promise),promise.reject.bind(promise));
+	} else if (type(value) === 'Object' || type(value) === 'Function') {
+		try {
+			then = value.then;
+		} catch(getThenErr) {
+			promise.reject(thenErr);
 		}
-		else {
+		if (type(then) === 'Function') {
+			try {
+				then.call(value,promise.resolve.bind(promise),promise.reject.bind(promise));
+			} catch(callThenErr) {
+				if (promise.state === 'pending') {
+					promise.reject(callThenErr);
+				} 
+			}
+		} else {
+			ret = true;
 			var fn;
-			this.setState('resolve');
-			this.value = value;
-			while (fn = this._resolve.shift()) {
+			promise.setState('fulfilled');//设置当前Promise状态的状态和值
+			promise.value = value;
+			var error;
+			while (fn = promise._resolve.shift()) {//执行resolve回调队列里的函数
 				try {
 					if (typeof fn == 'function') {
 						var result = fn(value);
-						this.value = result;
+						promise.value = result;
 					} 
 				} catch (err) {
-					this.reject(result);
-					break;
+					ret || (ret = err);//记录第一个执行出错的函数的异常信息
 				}
 			}
-			if (result === this) {
-				this.reject(new Error('TypeError'));
-			} else if (result && typeof result.then === 'function'){//回调返回的值或者resolve的值是Promise对象时需要继续等待
-				result.then(this.functionFactory(this,'resolve'),this.functionFactory(this,'reject'));
-			} else if (this.type(result) === 'Object' || this.type(result) === 'Function') {
-				try {
-					var then = result.then;
-				} catch(getThenErr) {
-					this.reject(thenErr);
-				}
-				if (this.type(then) === 'Function') {
-					try {
-						then.call(result,this.resolve.bind(this),this.reject.bind(this));
-					} catch(callThenErr) {
-						if (this.state === 'pending') {
-							this.reject(callThenErr);
-						} else {
-							//noop
-						}
-					}
-				} else {
-					this.resolve(result);
-				}
-			} else {
-				this.next && this.next[this.state](this.value);
+		}
+	}  else {
+		ret = true;
+		var fn;
+		promise.setState('fulfilled');//设置当前Promise状态的状态和值
+		promise.value = value;
+		var error;
+		while (fn = promise._resolve.shift()) {//执行resolve回调队列里的函数
+			try {
+				if (typeof fn == 'function') {
+					var result = fn(value);
+					promise.value = result;
+				} 
+			} catch (err) {
+				ret || (ret = err);
 			}
-		} 
+		}
+	}
+	return ret;
+}
+
+function type(arg) {//判断对象类型函数
+	return  Object.prototype.toString.call(arg).match(/ (\w+)/)[1];
+}
+
+function Promise(fn) {
+	if (!(this instanceof Promise)) {//防止不用new调用Promise函数
+		return new Promise(fn);
+	}
+	this._resolve = [];//Promise对象的fulfilled时执行的回调队列
+	this._reject = [];//Promise对象的rejected时执行的回调队列
+	this.next = null;//执行下一个Promise对象
+	this.value = null;//当前Promise对象的值
+	this.state = 'pending';//当前Promise对象的状态
+	this.id = Promise.idFactory();
+	/*
+		new 的时候如果有函数，就执行该函数，把resolve和reject函数作为参数传进去，并且绑定对应的Promise对象
+	*/
+	fn && fn(this.resolve.bind(this),this.reject.bind(this));
+}
+
+Promise.prototype = {
+	equal: function(promise) {//根据id判断两个Promise对象是否相等
+		return promise && (type(promise.then) === 'function') && (this.id === promise.id);
 	},
-	functionFactory: function(context,state) {
-		return function(result) {
-			context[state](result);
+	resolve: function(value) {
+		if(this.state !== 'pending'){
+			return;
+		}
+		var ret = resolve_promise_value(this,value);
+		if (ret === true) {
+			this.next && resolve_promise_value(this.next,this.value);
+		}
+		if (ret instanceof Error){
+			this.next && this.next.reject(ret);	
 		}
 	},
-	setState: function(state) {
+	setState: function(state) {//设置Promise对象的状态
 		this.state = state;
 	},
 	reject: function(value) {
 		if (this.state === 'pending') {
-			this.setState('reject');
-			this.value = value;
+			this.setState('rejected');//设置Promise对象状态
+			this.value = value;//记录Promise对象对应的值
 			var fn;
-			while (fn = this._reject.shift()) {
+			var error;
+			while (fn = this._reject.shift()) {//执行reject回调函数
 				try {
-					if (typeof fn == 'function') {
+					if (typeof fn == 'function') {//对于回调函数队列，只需记录最后一个函数的执行结果
 						var result = fn(value);
 						this.value = result;
 					} 
-				} catch (err) {
-
+				} catch (err) {//捕获异常，保证回调队列里的函数每一个都被执行
+					error || (error = err);
 				}
 			}
-			this.next && this.next[this.state](result)
+			/*
+				执行完当前Promise对象的回调后，如果Promise链上有下一个Promise对象，继续执行，当前的Promise对象的值传进去
+				如果error为true则说明上面代码执行中有异常，把异常对象传给下一个Promise对象
+			*/
+			this.next && this.next.reject(error || result);
 		}
 	},
-	then: function(resolve,reject) {
-		if (this.state != 'pending') {
-			setTimeout(this.state === 'resolve' ? resolve.bind(null,this.value) :  reject.bind(null,this.value),0);
+	then: function(resolve,reject) {//增加resolve和reject回调
+		if (this.state != 'pending') {//如果当前Promise对象已经resolve或reject则根据当前Promise对象状态异步执行传进来的resolve或reject函数
+			setTimeout(this.state === 'fulfilled' ? resolve.bind(null,this.value) :  reject.bind(null,this.value),0);
 			return;
 		}
-		this._resolve.push(resolve);
-		this._reject.push(reject);
-		this.next = new Promise();
+		(type(resolve) === 'Function') && this._resolve.push(resolve);//记录resolve回调
+		(type(reject) === 'Function') && this._reject.push(reject);
+		this.next = new Promise();//返回一个新的Promise对象
 		return this.next;
 	},
-	catch: function(reject) {
+	catch: function(reject) {//then(undefined,callback)的语法糖
 		return this.then(void 0,reject);
 	}
 }
 Promise.all = function(promiseArr) {
-	if (Object.prototype.toString.call(promiseArr) !== '[object Array]') {
+	if (Object.prototype.toString.call(promiseArr) !== '[object Array]') {//参数需要Promise数组
 		new Error('need a Array');
 	}
 	var count = 0;
-	var result = [];
-	var ret = new Promise();
+	var result = [];//记录每个Promise的结果
+	var ret = new Promise();//返回新的Promose对象
 	for (var i = 0; i< promiseArr.length ;i++) {
-		promiseArr[i].then((function(i) {
+		promiseArr[i].then((function(i) {//每个Promise fulfilled后记录结果并且判断是否全部Promise对象已经fulfilled
 			return function(value) {
 				result[i] = value;
 				count++;
-				if (count === promiseArr.length) {
+				if (count === promiseArr.length) {//全部Promise fulfilled的话就执行resovle
 					ret.resolve(result); 
 				}
 			}
 		})(i),function(value) {
-			if (ret.state === 'pending') {
+			if (ret.state === 'pending') {//有一个Promise对象reject并且ret还是pending状态的话就直接返回
 				ret.reject(value);
 			}	
 		})
@@ -157,11 +174,11 @@ Promise.race = function(promiseArr) {
 	var ret = new Promise();
 	for (var i = 0; i< promiseArr.length ;i++) {
 		promiseArr[i].then(function(value) {
-			if (ret.state === 'pending') {
+			if (ret.state === 'pending') {//有一个Promise对象resolve的话就返回，并且放弃其余的Promise对象的结果
 				ret.resolve(value);
 			}
 		},function(value) {
-			if (ret.state === 'pending') {
+			if (ret.state === 'pending') {//有一个Promise对象reject的话就返回，并且放弃其余的Promise对象的结果
 				ret.reject(value);
 			}	
 		});
@@ -170,16 +187,16 @@ Promise.race = function(promiseArr) {
 }
 
 Promise.resolve = function(arg) {
-	if (arg && typeof arg.then === 'function') {
+	if (arg && typeof arg.then === 'function') {//参数是Promise对象的话直接返回
 		return arg;
-	} else {
+	} else {//否则用参数构造一个Promise对象
 		var result = new Promise();
 		result.resolve(arg);
 		return result;
 	}
 }
 
-Promise.reject = function(arg) {
+Promise.reject = function(arg) {//同resolve
 	if (arg && typeof arg.then === 'function') {
 		return arg;
 	} else {
@@ -188,9 +205,11 @@ Promise.reject = function(arg) {
 		return result;
 	}
 }
-Promise.idFactory = (function() {
+Promise.idFactory = (function() {//id构造工厂，id用于比较是否是同一个Promise对象
 	var _id = 0;
 	return function() {
 		return _id += 1;
 	}
 })();
+
+module.exports = Promise;
