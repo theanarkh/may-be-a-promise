@@ -59,7 +59,7 @@ function resolve_promise_value(promise,value) {//PromiseA+的实现
 					promise.value = result;
 				} 
 			} catch (err) {
-				ret || (ret = err);
+				(ret instanceof Error) || (ret = err);
 			}
 		}
 	}
@@ -121,11 +121,19 @@ Promise.prototype = {
 					error || (error = err);
 				}
 			}
-			/*
-				执行完当前Promise对象的回调后，如果Promise链上有下一个Promise对象，继续执行，当前的Promise对象的值传进去
-				如果error为true则说明上面代码执行中有异常，把异常对象传给下一个Promise对象
-			*/
-			this.next && this.next.reject(error || result);
+			if (this.next) {
+				if (error) {
+					this.next.reject(error);
+				} 
+				/*
+					执行完当前Promise对象的回调后，如果Promise链上有下一个Promise对象，继续执行，当前的Promise对象的值传进去
+					如果error为true则说明上面代码执行中有异常，把异常对象传给下一个Promise对象
+				*/
+				else {
+					resolve_promise_value(this.next,result);
+				}
+			}
+			
 		}
 	},
 	then: function(resolve,reject) {//增加resolve和reject回调
