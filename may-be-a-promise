@@ -1,3 +1,4 @@
+```
 
 
 function resolve_promise_value(promise,value) {//PromiseA+的实现
@@ -230,3 +231,5 @@ Promise.idFactory = (function() {//id构造工厂，id用于比较是否是同�
 })();
 
 module.exports = Promise;
+
+```
