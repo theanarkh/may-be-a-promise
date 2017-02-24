@@ -1,5 +1,3 @@
-```
-
 
 function resolve_promise_value(promise,value) {//PromiseA+的实现
     var then;
@@ -95,9 +93,9 @@ function Promise(fn,value,state) {
         new 的时候如果有函数，就执行该函数，把resolve和reject函数作为参数传进去，并且绑定对应的Promise对象
     */
     try {
-    	fn && fn(this.resolve.bind(this),this.reject.bind(this));
+      fn && fn(this.resolve.bind(this),this.reject.bind(this));
     } catch (e) {
-    	this.reject(e);
+      this.reject(e);
     }
 }
 
@@ -124,6 +122,12 @@ Promise.prototype = {
                 this.value = value;//记录Promise对象对应的值
                 var fn;
                 var error;
+                if (this._reject.length === 0) {
+                    if (this.next) {
+                        this.next.reject(value);
+                    }
+                    return;
+                }
                 while (fn = this._reject.shift()) {//执行reject回调函数
                     try {
                         if (typeof fn == 'function') {//对于回调函数队列，只需记录最后一个函数的执行结果
@@ -236,5 +240,3 @@ Promise.idFactory = (function() {//id构造工厂，id用于比较是否是同�
 })();
 
 module.exports = Promise;
-
-```
